@@ -2,18 +2,18 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PRICE_PROVIDERS } from './const';
 
 export interface PriceProvider {
-  getAvgPrice(timeout: number): Promise<number>;
+  getMidPrice(timeout: number): Promise<number>;
 }
 
 @Injectable()
-export class PriceService implements PriceProvider {
+export class PriceService {
   constructor(
     @Inject(PRICE_PROVIDERS) private readonly providers: PriceProvider[],
   ) {}
 
-  async getAvgPrice(timeout = 1000) {
+  async getAvgPrice() {
     const prices = await Promise.allSettled(
-      this.providers.map((p) => p.getAvgPrice(timeout)),
+      this.providers.map((p) => p.getMidPrice(1000)),
     );
 
     let sum = 0;
@@ -25,6 +25,6 @@ export class PriceService implements PriceProvider {
       }
     }
 
-    return sum / count;
+    return (sum / count).toFixed(4);
   }
 }

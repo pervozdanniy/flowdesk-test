@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PriceProvider } from '../price.service';
 import WebSocket from 'ws';
-import { timedOut, withResolvers } from '../util/promise';
+import { timedOut, withResolvers } from '../../util/promise';
 
 type ErrorMessage = {
   error: string;
@@ -49,16 +49,16 @@ export class KrakenProvider
 {
   private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(KrakenProvider.name);
-  private ws?: WebSocket;
+  private ws: WebSocket;
   private data: PriceData | null = null;
   private reconnect = true;
 
   constructor(private readonly symbol: string) {}
 
-  async getAvgPrice(timeout = 1000): Promise<number> {
+  async getMidPrice(timeout = 1000): Promise<number> {
     await timedOut(this.resolvers.promise, timeout);
 
-    return (this.data.bid + this.data.ask) / 2;
+    return (this.data!.bid + this.data!.ask) / 2;
   }
 
   onApplicationBootstrap() {

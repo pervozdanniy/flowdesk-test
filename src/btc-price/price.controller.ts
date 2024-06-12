@@ -6,7 +6,7 @@ export class PriceController {
   constructor(private readonly appService: PriceService) {}
 
   @Get()
-  async getHello(): Promise<number> {
+  async getPrice() {
     return this.appService.getAvgPrice();
   }
 }

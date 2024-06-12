@@ -8,8 +8,8 @@ export const timedOut = <T>(pr: Promise<T>, ms: number): Promise<T> =>
 
 export const withResolvers = <T>() => {
   let promise: Promise<T>,
-    resolve: (value: T) => void,
-    reject: (err?: unknown) => void;
+    resolve!: (value: T) => void,
+    reject!: (err?: unknown) => void;
   // eslint-disable-next-line prefer-const
   promise = new Promise<T>((res, rej) => {
     resolve = res;

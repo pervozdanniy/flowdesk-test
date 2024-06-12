@@ -8,7 +8,7 @@ import { PriceProvider } from '../price.service';
 import WebSocket from 'ws';
 import { gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
-import { timedOut, withResolvers } from '../util/promise';
+import { timedOut, withResolvers } from '../../util/promise';
 
 type PriceData = {
   seqId: number;
@@ -43,16 +43,16 @@ export class HuobiProvider
 {
   private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(HuobiProvider.name);
-  private ws?: WebSocket;
+  private ws: WebSocket;
   private data: PriceData | null = null;
   private reconnect = true;
 
   constructor(private readonly symbol: string) {}
 
-  async getAvgPrice(timeout: number): Promise<number> {
+  async getMidPrice(timeout: number): Promise<number> {
     await timedOut(this.resolvers.promise, timeout);
 
-    return (this.data.ask + this.data.bid) / 2;
+    return (this.data!.ask + this.data!.bid) / 2;
   }
 
   onApplicationBootstrap() {

@@ -1,26 +1,7 @@
 import { Module } from '@nestjs/common';
-import { PriceController } from './price.controller';
-import { BinanceProvider } from './providers/binance.provider';
-import { KrakenProvider } from './providers/kraken.provider';
-import { PriceProvider, PriceService } from './price.service';
-import { HuobiProvider } from './providers/huobi.provider';
-import { PRICE_PROVIDERS } from './const';
+import { BtcPriceModule } from './btc-price/btc-price.module';
 
 @Module({
-  imports: [],
-  controllers: [PriceController],
-  providers: [
-    PriceService,
-    { provide: BinanceProvider, useValue: new BinanceProvider('btcusdt') },
-    { provide: KrakenProvider, useValue: new KrakenProvider('BTC/USDT') },
-    { provide: HuobiProvider, useValue: new HuobiProvider('btcusdt') },
-    {
-      provide: PRICE_PROVIDERS,
-      useFactory(...providers: PriceProvider[]) {
-        return providers;
-      },
-      inject: [BinanceProvider, KrakenProvider, HuobiProvider],
-    },
-  ],
+  imports: [BtcPriceModule],
 })
 export class AppModule {}

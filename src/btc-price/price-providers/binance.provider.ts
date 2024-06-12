@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { WebsocketStream } from '@binance/connector-typescript';
 import { PriceProvider } from '../price.service';
-import { timedOut, withResolvers } from '../util/promise';
+import { timedOut, withResolvers } from '../../util/promise';
 
 type UpdatedPriceMessage = {
   u: number;
@@ -23,15 +23,15 @@ export class BinanceProvider
 {
   private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(BinanceProvider.name);
-  private wsClient?: WebsocketStream;
+  private ws: WebsocketStream;
   private data: UpdatedPriceMessage | null = null;
 
   constructor(private readonly symbol: string) {}
 
-  async getAvgPrice(timeout = 1000) {
+  async getMidPrice(timeout = 1000) {
     await timedOut(this.resolvers.promise, timeout);
 
-    return (parseFloat(this.data.a) + parseFloat(this.data.b)) / 2;
+    return (parseFloat(this.data!.a) + parseFloat(this.data!.b)) / 2;
   }
 
   onApplicationBootstrap() {
@@ -39,11 +39,11 @@ export class BinanceProvider
   }
 
   onApplicationShutdown() {
-    this.wsClient.disconnect();
+    this.ws.disconnect();
   }
 
   private connect() {
-    this.wsClient = new WebsocketStream({
+    this.ws = new WebsocketStream({
       callbacks: {
         open: () => this.logger.debug('Connected to server'),
         close: () => this.logger.debug('Disconnected from server'),
@@ -54,7 +54,7 @@ export class BinanceProvider
         },
       },
     });
-    this.wsClient.bookTicker(this.symbol);
+    this.ws.bookTicker(this.symbol);
   }
 
   private onMessage(message: string) {
