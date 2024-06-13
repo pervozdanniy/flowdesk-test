@@ -10,7 +10,7 @@ export class PriceService {
 
   async getAvgPrice() {
     const prices = await Promise.allSettled(
-      this.providers.map((p) => p.getMidPrice(PairSymbol.BTC_USDT, 1000)),
+      this.providers.map((p) => p.getMidPrice(PairSymbol.BTC_USDT)),
     );
 
     let sum = 0;
@@ -20,6 +20,9 @@ export class PriceService {
         count++;
         sum += res.value;
       }
+    }
+    if (count === 0) {
+      return 'N/A';
     }
 
     return (sum / count).toFixed(4);

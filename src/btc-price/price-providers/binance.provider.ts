@@ -5,7 +5,6 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { WebsocketStream } from '@binance/connector-typescript';
-import { AsyncCache, timedOut } from '../../util/promise';
 import { PriceProvider, PairSymbol } from '../interface';
 
 type UpdatedPriceMessage = {
@@ -32,22 +31,18 @@ export class BinanceProvider
 {
   private readonly logger = new Logger(BinanceProvider.name);
   private ws: WebsocketStream;
-  private cache = new AsyncCache<
-    UpdatedPriceMessage['s'],
-    UpdatedPriceMessage
-  >();
+  private cache = new Map<UpdatedPriceMessage['s'], UpdatedPriceMessage>();
   private readonly symbols: string[] = [];
 
   constructor(...symbols: PairSymbol[]) {
-    for (const symbol of symbols) {
-      const mapped = mapSymbol(symbol);
-      this.symbols.push(mapped);
-      this.cache.init(mapped);
-    }
+    this.symbols = symbols.map(mapSymbol);
   }
 
-  async getMidPrice(symbol: PairSymbol, timeout = 1000) {
-    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
+  async getMidPrice(symbol: PairSymbol) {
+    const data = this.cache.get(mapSymbol(symbol));
+    if (!data) {
+      throw new Error(`No data for ${symbol} available`);
+    }
 
     return (parseFloat(data.a) + parseFloat(data.b)) / 2;
   }
@@ -66,10 +61,7 @@ export class BinanceProvider
         open: () => this.logger.debug('Connected to server'),
         close: () => this.logger.debug('Disconnected from server'),
         message: (data: string) => this.onMessage(data),
-        error: () => {
-          this.cache.reject(new Error('Websocket error'));
-          this.logger.error('Websocket error');
-        },
+        error: () => this.logger.error('Websocket error'),
       },
     });
     for (const symbol of this.symbols) {

@@ -5,7 +5,6 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import WebSocket from 'ws';
-import { AsyncCache, timedOut } from '../../util/promise';
 import { PriceProvider, PairSymbol } from '../interface';
 
 type ErrorMessage = {
@@ -59,19 +58,18 @@ export class KrakenProvider
   private readonly logger = new Logger(KrakenProvider.name);
   private ws: WebSocket;
   private reconnect = true;
-  private cache = new AsyncCache<PriceData['symbol'], PriceData>();
+  private cache = new Map<PriceData['symbol'], PriceData>();
   private readonly symbols: string[] = [];
 
   constructor(...symbols: PairSymbol[]) {
-    for (const symbol of symbols) {
-      const mapped = mapSymbol(symbol);
-      this.symbols.push(mapped);
-      this.cache.init(mapped);
-    }
+    this.symbols = symbols.map(mapSymbol);
   }
 
-  async getMidPrice(symbol: PairSymbol, timeout = 1000): Promise<number> {
-    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
+  async getMidPrice(symbol: PairSymbol): Promise<number> {
+    const data = this.cache.get(mapSymbol(symbol));
+    if (!data) {
+      throw new Error(`No data for ${symbol} available`);
+    }
 
     return (data.bid + data.ask) / 2;
   }
@@ -102,10 +100,7 @@ export class KrakenProvider
 
     this.ws
       .on('message', (message: string) => this.onMessage(message))
-      .on('error', (err) => {
-        this.logger.error(err.message, { err });
-        this.cache.reject(err);
-      })
+      .on('error', (err) => this.logger.error(err.message, { err }))
       .on('close', () => {
         this.logger.debug('Disconnected from server');
         if (this.reconnect) {
@@ -122,7 +117,7 @@ export class KrakenProvider
   private onMessage(message: string) {
     const payload = JSON.parse(message);
     if (isError(payload)) {
-      this.cache.reject(payload.error);
+      this.logger.error(payload.error, { payload });
       return;
     }
     if (isData(payload)) {

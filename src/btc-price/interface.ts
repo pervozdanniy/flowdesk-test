@@ -3,5 +3,5 @@ export enum PairSymbol {
 }
 
 export interface PriceProvider {
-  getMidPrice(symbol: PairSymbol, timeout: number): Promise<number>;
+  getMidPrice(symbol: PairSymbol): Promise<number>;
 }

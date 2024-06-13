@@ -7,7 +7,6 @@ import {
 import WebSocket from 'ws';
 import { gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
-import { AsyncCache, timedOut } from '../../util/promise';
 import { PriceProvider, PairSymbol } from '../interface';
 
 type PriceData = {
@@ -53,19 +52,18 @@ export class HuobiProvider
   private readonly logger = new Logger(HuobiProvider.name);
   private ws: WebSocket;
   private reconnect = true;
-  private cache = new AsyncCache<PriceData['symbol'], PriceData>();
+  private cache = new Map<PriceData['symbol'], PriceData>();
   private readonly symbols: string[] = [];
 
   constructor(...symbols: PairSymbol[]) {
-    for (const symbol of symbols) {
-      const mapped = mapSymbol(symbol);
-      this.symbols.push(mapped);
-      this.cache.init(mapped);
-    }
+    this.symbols = symbols.map(mapSymbol);
   }
 
-  async getMidPrice(symbol: PairSymbol, timeout: number): Promise<number> {
-    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
+  async getMidPrice(symbol: PairSymbol): Promise<number> {
+    const data = this.cache.get(mapSymbol(symbol));
+    if (!data) {
+      throw new Error(`No data for ${symbol} available`);
+    }
 
     return (data.ask + data.bid) / 2;
   }
@@ -95,10 +93,7 @@ export class HuobiProvider
 
     this.ws
       .on('message', (message: Buffer) => this.onMessage(message))
-      .on('error', (err) => {
-        this.logger.error(err.message, { err });
-        this.cache.reject(err);
-      })
+      .on('error', (err) => this.logger.error(err.message, { err }))
       .on('close', () => {
         this.logger.debug('Disconnected from server');
         if (this.reconnect) {
