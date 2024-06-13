@@ -4,9 +4,9 @@ import {
   OnApplicationBootstrap,
   OnApplicationShutdown,
 } from '@nestjs/common';
-import { PriceProvider } from '../price.service';
 import WebSocket from 'ws';
-import { timedOut, withResolvers } from '../../util/promise';
+import { AsyncCache, timedOut } from '../../util/promise';
+import { PriceProvider, PairSymbol } from '../interface';
 
 type ErrorMessage = {
   error: string;
@@ -43,22 +43,37 @@ const isError = (payload: Record<any, any>): payload is ErrorMessage =>
 const isData = (payload: Record<any, any>): payload is DataMessage =>
   (payload as DataMessage).channel === 'ticker';
 
+const mapSymbol = (symbol: PairSymbol): PriceData['symbol'] => {
+  switch (symbol) {
+    case PairSymbol.BTC_USDT:
+      return 'BTC/USDT';
+    default:
+      throw new Error('Unsupported symbol');
+  }
+};
+
 @Injectable()
 export class KrakenProvider
   implements PriceProvider, OnApplicationBootstrap, OnApplicationShutdown
 {
-  private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(KrakenProvider.name);
   private ws: WebSocket;
-  private data: PriceData | null = null;
   private reconnect = true;
+  private cache = new AsyncCache<PriceData['symbol'], PriceData>();
+  private readonly symbols: string[] = [];
 
-  constructor(private readonly symbol: string) {}
+  constructor(...symbols: PairSymbol[]) {
+    for (const symbol of symbols) {
+      const mapped = mapSymbol(symbol);
+      this.symbols.push(mapped);
+      this.cache.init(mapped);
+    }
+  }
 
-  async getMidPrice(timeout = 1000): Promise<number> {
-    await timedOut(this.resolvers.promise, timeout);
+  async getMidPrice(symbol: PairSymbol, timeout = 1000): Promise<number> {
+    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
 
-    return (this.data!.bid + this.data!.ask) / 2;
+    return (data.bid + data.ask) / 2;
   }
 
   onApplicationBootstrap() {
@@ -79,7 +94,7 @@ export class KrakenProvider
           method: 'subscribe',
           params: {
             channel: 'ticker',
-            symbol: [this.symbol],
+            symbol: this.symbols,
           },
         }),
       );
@@ -89,7 +104,7 @@ export class KrakenProvider
       .on('message', (message: string) => this.onMessage(message))
       .on('error', (err) => {
         this.logger.error(err.message, { err });
-        this.resolvers.reject(err);
+        this.cache.reject(err);
       })
       .on('close', () => {
         this.logger.debug('Disconnected from server');
@@ -107,15 +122,13 @@ export class KrakenProvider
   private onMessage(message: string) {
     const payload = JSON.parse(message);
     if (isError(payload)) {
-      this.resolvers.reject(payload.error);
+      this.cache.reject(payload.error);
       return;
     }
     if (isData(payload)) {
-      if (!this.data) {
-        this.logger.debug('Fetched initial price data');
-        this.resolvers.resolve();
+      for (const data of payload.data) {
+        this.cache.set(data.symbol, data);
       }
-      this.data = payload.data[0];
     }
   }
 }

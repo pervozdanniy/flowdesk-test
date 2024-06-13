@@ -4,11 +4,11 @@ import {
   OnApplicationBootstrap,
   OnApplicationShutdown,
 } from '@nestjs/common';
-import { PriceProvider } from '../price.service';
 import WebSocket from 'ws';
 import { gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
-import { timedOut, withResolvers } from '../../util/promise';
+import { AsyncCache, timedOut } from '../../util/promise';
+import { PriceProvider, PairSymbol } from '../interface';
 
 type PriceData = {
   seqId: number;
@@ -20,7 +20,7 @@ type PriceData = {
   symbol: string;
 };
 
-type PriceUpdatedMessage = {
+type UpdatedPriceMessage = {
   ch: string;
   ts: number;
   tick: PriceData;
@@ -28,31 +28,46 @@ type PriceUpdatedMessage = {
 
 type PingMessage = { ping: number };
 
-const isPriceUpdatedMessage = (
+const isUpdatedPriceMessage = (
   payload: Record<any, any>,
-): payload is PriceUpdatedMessage =>
-  !!(payload as PriceUpdatedMessage).ch &&
-  !!(payload as PriceUpdatedMessage).tick;
+): payload is UpdatedPriceMessage =>
+  !!(payload as UpdatedPriceMessage).ch &&
+  !!(payload as UpdatedPriceMessage).tick;
 
 const isPingMessage = (payload: Record<any, any>): payload is PingMessage =>
   typeof (payload as PingMessage).ping === 'number';
+
+const mapSymbol = (symbol: PairSymbol): PriceData['symbol'] => {
+  switch (symbol) {
+    case PairSymbol.BTC_USDT:
+      return 'btcusdt';
+    default:
+      throw new Error('Unsupported symbol');
+  }
+};
 
 @Injectable()
 export class HuobiProvider
   implements PriceProvider, OnApplicationBootstrap, OnApplicationShutdown
 {
-  private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(HuobiProvider.name);
   private ws: WebSocket;
-  private data: PriceData | null = null;
   private reconnect = true;
+  private cache = new AsyncCache<PriceData['symbol'], PriceData>();
+  private readonly symbols: string[] = [];
 
-  constructor(private readonly symbol: string) {}
+  constructor(...symbols: PairSymbol[]) {
+    for (const symbol of symbols) {
+      const mapped = mapSymbol(symbol);
+      this.symbols.push(mapped);
+      this.cache.init(mapped);
+    }
+  }
 
-  async getMidPrice(timeout: number): Promise<number> {
-    await timedOut(this.resolvers.promise, timeout);
+  async getMidPrice(symbol: PairSymbol, timeout: number): Promise<number> {
+    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
 
-    return (this.data!.ask + this.data!.bid) / 2;
+    return (data.ask + data.bid) / 2;
   }
 
   onApplicationBootstrap() {
@@ -68,16 +83,21 @@ export class HuobiProvider
 
     this.ws.on('open', () => {
       this.logger.debug('Connected to server');
-      this.ws.send(
-        JSON.stringify({ sub: `market.${this.symbol}.bbo`, id: 'id1' }),
-      );
+      this.symbols.forEach((symbol, i) => {
+        this.ws.send(
+          JSON.stringify({
+            sub: `market.${symbol}.bbo`,
+            id: `id${i + 1}`,
+          }),
+        );
+      });
     });
 
     this.ws
       .on('message', (message: Buffer) => this.onMessage(message))
       .on('error', (err) => {
         this.logger.error(err.message, { err });
-        this.resolvers.reject(err);
+        this.cache.reject(err);
       })
       .on('close', () => {
         this.logger.debug('Disconnected from server');
@@ -100,12 +120,8 @@ export class HuobiProvider
       this.ws.send(JSON.stringify({ pong: payload.ping }));
       return;
     }
-    if (isPriceUpdatedMessage(payload)) {
-      if (this.data === null) {
-        this.logger.debug('Fetched initial price data');
-        this.resolvers.resolve();
-      }
-      this.data = payload.tick;
+    if (isUpdatedPriceMessage(payload)) {
+      this.cache.set(payload.tick.symbol, payload.tick);
     }
   }
 }

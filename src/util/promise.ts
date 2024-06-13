@@ -18,3 +18,38 @@ export const withResolvers = <T>() => {
 
   return { promise, resolve, reject };
 };
+
+export class AsyncCache<K = any, V = any> {
+  private resolvers = new Map<K, any>();
+  private data = new Map<K, V>();
+  private rejected: unknown = null;
+
+  init(key: K) {
+    this.resolvers.set(key, withResolvers());
+  }
+
+  set(key: K, value: V) {
+    if (!this.data.has(key)) {
+      this.resolvers.get(key)?.resolve();
+    }
+    this.data.set(key, value);
+  }
+
+  delete(key: K) {
+    this.data.delete(key);
+    this.init(key);
+  }
+
+  async get(key: K) {
+    if (this.rejected !== null) {
+      throw this.rejected;
+    }
+    await this.resolvers.get(key);
+
+    return this.data.get(key)!;
+  }
+
+  reject(reason?: unknown) {
+    this.rejected = reason ?? new Error();
+  }
+}

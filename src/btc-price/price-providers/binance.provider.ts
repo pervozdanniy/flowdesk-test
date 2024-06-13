@@ -5,8 +5,8 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 import { WebsocketStream } from '@binance/connector-typescript';
-import { PriceProvider } from '../price.service';
-import { timedOut, withResolvers } from '../../util/promise';
+import { AsyncCache, timedOut } from '../../util/promise';
+import { PriceProvider, PairSymbol } from '../interface';
 
 type UpdatedPriceMessage = {
   u: number;
@@ -17,21 +17,39 @@ type UpdatedPriceMessage = {
   A: string;
 };
 
+const mapSymbol = (symbol: PairSymbol): UpdatedPriceMessage['s'] => {
+  switch (symbol) {
+    case PairSymbol.BTC_USDT:
+      return 'BTCUSDT';
+    default:
+      throw new Error('Unsupported symbol');
+  }
+};
+
 @Injectable()
 export class BinanceProvider
   implements PriceProvider, OnApplicationBootstrap, OnApplicationShutdown
 {
-  private readonly resolvers = withResolvers<void>();
   private readonly logger = new Logger(BinanceProvider.name);
   private ws: WebsocketStream;
-  private data: UpdatedPriceMessage | null = null;
+  private cache = new AsyncCache<
+    UpdatedPriceMessage['s'],
+    UpdatedPriceMessage
+  >();
+  private readonly symbols: string[] = [];
 
-  constructor(private readonly symbol: string) {}
+  constructor(...symbols: PairSymbol[]) {
+    for (const symbol of symbols) {
+      const mapped = mapSymbol(symbol);
+      this.symbols.push(mapped);
+      this.cache.init(mapped);
+    }
+  }
 
-  async getMidPrice(timeout = 1000) {
-    await timedOut(this.resolvers.promise, timeout);
+  async getMidPrice(symbol: PairSymbol, timeout = 1000) {
+    const data = await timedOut(this.cache.get(mapSymbol(symbol)), timeout);
 
-    return (parseFloat(this.data!.a) + parseFloat(this.data!.b)) / 2;
+    return (parseFloat(data.a) + parseFloat(data.b)) / 2;
   }
 
   onApplicationBootstrap() {
@@ -49,20 +67,18 @@ export class BinanceProvider
         close: () => this.logger.debug('Disconnected from server'),
         message: (data: string) => this.onMessage(data),
         error: () => {
-          this.resolvers.reject();
+          this.cache.reject(new Error('Websocket error'));
           this.logger.error('Websocket error');
         },
       },
     });
-    this.ws.bookTicker(this.symbol);
+    for (const symbol of this.symbols) {
+      this.ws.bookTicker(symbol);
+    }
   }
 
   private onMessage(message: string) {
     const payload: UpdatedPriceMessage = JSON.parse(message);
-    if (!this.data) {
-      this.logger.debug('Fetched initial price data');
-      this.resolvers.resolve();
-    }
-    this.data = payload;
+    this.cache.set(payload.s, payload);
   }
 }

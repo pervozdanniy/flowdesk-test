@@ -1,9 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { PRICE_PROVIDERS } from './const';
-
-export interface PriceProvider {
-  getMidPrice(timeout: number): Promise<number>;
-}
+import { PRICE_PROVIDERS } from './di-tokens';
+import { PriceProvider, PairSymbol } from './interface';
 
 @Injectable()
 export class PriceService {
@@ -13,7 +10,7 @@ export class PriceService {
 
   async getAvgPrice() {
     const prices = await Promise.allSettled(
-      this.providers.map((p) => p.getMidPrice(1000)),
+      this.providers.map((p) => p.getMidPrice(PairSymbol.BTC_USDT, 1000)),
     );
 
     let sum = 0;
